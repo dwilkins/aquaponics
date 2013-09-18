@@ -35,12 +35,21 @@ int segment_patterns [][2] = {
   {'9',0x7b}
 };
 
-
-int pump_pwm_value = 240;
-unsigned long int pump_on_millis = 4.5 * 60UL * 1000UL;
+/*
+ * The PWM value for the pump - governs how fast it pumps
+ */
+int pump_pwm_value = 255;
+/*
+ * How long to keep the pump on in milliseconds
+ * This value is contained within the cycle time, not in addition to
+ */
+unsigned long int pump_on_millis = 3.85 /*minutes*/ * 60UL/* seconds */ * 1000UL /* milliseconds */;
 /* testing value */
 /* unsigned long int pump_on_millis = 15UL * 1000UL; */
 
+/*
+ * Total cycle time in milliseconds from pump start to pump start
+ */
 unsigned long int total_cycle_millis = 30UL * 60UL * 1000UL;
 /* testing value */
 /* unsigned long int total_cycle_millis = 100UL * 1000UL; */
