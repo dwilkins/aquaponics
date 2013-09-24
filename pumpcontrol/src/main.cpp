@@ -7,10 +7,10 @@ extern "C" void __cxa_pure_virtual(void) {
 #define ANALOG_OUTPUT_PIN A2
 #define ANALOG_INPUT_PIN A0
 #define PUMP_PWM_PIN 44
+#define AERATION_PWM_PIN 46
 #define PUMP_ENABLE_PIN 53
 
 /* #define DEBUG */
-
 
 /* 3 hours */
 #define MAX_CYCLE_TIME 180UL * 60UL * 1000UL
@@ -38,7 +38,8 @@ int segment_patterns [][2] = {
 /*
  * The PWM value for the pump - governs how fast it pumps
  */
-int pump_pwm_value = 255;
+int pump_pwm_value = 254;
+int aeration_pwm_value = 128;
 /*
  * How long to keep the pump on in milliseconds
  * This value is contained within the cycle time, not in addition to
@@ -50,7 +51,7 @@ unsigned long int pump_on_millis = 3.85 /*minutes*/ * 60UL/* seconds */ * 1000UL
 /*
  * Total cycle time in milliseconds from pump start to pump start
  */
-unsigned long int total_cycle_millis = 30UL * 60UL * 1000UL;
+unsigned long int total_cycle_millis = 45UL * 60UL * 1000UL;
 /* testing value */
 /* unsigned long int total_cycle_millis = 100UL * 1000UL; */
 
@@ -59,6 +60,7 @@ unsigned long int max_cycle_time = 0;
 unsigned long int pump_state_change = 0;
 unsigned long int cycle_start_time = 0;
 int current_pump_pwm_value = 0;
+int current_aeration_pwm_value = 0;
 
 void (*animation)(bool start) = NULL;
 
@@ -285,6 +287,7 @@ void check_cycle_state(unsigned long int now) {
       sensor_animation(true);
       pump_state_change = now;
       analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
+      delay(1);
     } else if (current_pump_pwm_value == 0) {
 #ifdef DEBUG
       Serial.println(" ------- Starting the Cycle  ");
@@ -294,9 +297,42 @@ void check_cycle_state(unsigned long int now) {
       pumping_animation(true);
       current_pump_pwm_value = pump_pwm_value;
       pump_state_change = now;
+      delay(1);
       analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
     }
   }
+
+}
+
+/*
+ *
+ */
+
+void check_aeration_state(unsigned long now) {
+  static unsigned long int next_update_time = 0;
+  static unsigned long int update_millis = 30000;   /* 30 seconds on */
+  static unsigned long int additional_off_time = 9.5 * 60UL * 1000UL; /*  9.5 minutes  */
+  if(current_pump_pwm_value > 0) {
+    if(current_aeration_pwm_value > 0) {
+      current_aeration_pwm_value = 0;
+      analogWrite(AERATION_PWM_PIN,current_aeration_pwm_value);
+    }
+    return;
+  }
+
+  if(next_update_time > now) {
+    return;
+  }
+
+  next_update_time = now + update_millis;
+
+  if(current_aeration_pwm_value > 0) {
+    current_aeration_pwm_value = 0;
+    next_update_time += additional_off_time;
+  } else {
+    current_aeration_pwm_value = aeration_pwm_value;
+  }
+  analogWrite(AERATION_PWM_PIN,current_aeration_pwm_value);
 
 }
 
@@ -308,7 +344,9 @@ void loop() {
   }
   if(now > 0) {
     check_cycle_state(now);
+    check_aeration_state(now);
   }
+
 
 }
 
