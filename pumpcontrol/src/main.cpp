@@ -1,5 +1,9 @@
 #include <Arduino.h>
 
+/*
+ * required for Arduino code
+ */
+
 extern "C" void __cxa_pure_virtual(void) {
     while(1);
 }
@@ -12,9 +16,8 @@ extern "C" void __cxa_pure_virtual(void) {
 
 /* #define DEBUG */
 
-/* 3 hours */
-#define MAX_CYCLE_TIME 180UL * 60UL * 1000UL
-
+#define MAX_CYCLE_TIME 3UL /* hours */ * 60UL /*minutes*/ * 60UL /* seconds */ * 1000UL /* milliseconds */
+#define MIN_CYCLE_TIME 1UL /* hours */ * 60UL /*minutes*/ * 60UL /* seconds */ * 1000UL /* milliseconds */
 /*
  * Pins used for the 7-segment LED - DP,A,B,C,D,E,F,G
  * pattern for segment_patterns also
@@ -39,22 +42,17 @@ int segment_patterns [][2] = {
  * The PWM value for the pump - governs how fast it pumps
  */
 int pump_pwm_value = 254;
-int aeration_pwm_value = 128;
+int aeration_pwm_value = 190;  /* The pump splashes like crazy if set to 254 */
 /*
  * How long to keep the pump on in milliseconds
  * This value is contained within the cycle time, not in addition to
  */
-unsigned long int pump_on_millis = 3.85 /*minutes*/ * 60UL/* seconds */ * 1000UL /* milliseconds */;
+unsigned long int pump_on_millis = 2.1 /*minutes*/ * 60UL/* seconds */ * 1000UL /* milliseconds */;
 /* testing value */
 /* unsigned long int pump_on_millis = 15UL * 1000UL; */
 
-/*
- * Total cycle time in milliseconds from pump start to pump start
- */
-unsigned long int total_cycle_millis = 45UL * 60UL * 1000UL;
-/* testing value */
-/* unsigned long int total_cycle_millis = 100UL * 1000UL; */
 
+unsigned long int saved_cycle_start_time = 0;
 unsigned long int next_cycle_time = 0;
 unsigned long int max_cycle_time = 0;
 unsigned long int pump_state_change = 0;
@@ -84,8 +82,8 @@ void setup() {
   analogWrite(PUMP_PWM_PIN,0);
   digitalWrite(PUMP_ENABLE_PIN,HIGH);
 
-  next_cycle_time = pump_on_millis;
-  next_cycle_time = 26000;
+  next_cycle_time = 15000;
+  saved_cycle_start_time = next_cycle_time;
 }
 
 /*
@@ -116,7 +114,7 @@ void write_char(char ch,bool decimal = false) {
       break;
     }
   }
-  if(i == 10) {return;}
+  if(i == 10 && (segment_patterns[i][0] != ch)) {return;}
   bitmask = segment_patterns[i][1];
   if(decimal) {
     bitmask |= 0x80;
@@ -159,19 +157,20 @@ void pumping_animation(bool start) {
  */
 void sensor_animation(bool start) {
   static unsigned long int next_update_time = 0;
-  static unsigned long int update_millis = 500;
-  static int max_sensor_value = 0;
-  static int min_sensor_value = 2048;
+  static unsigned long int update_millis = 1000;
+  static unsigned int max_sensor_value = 0;
+  static unsigned int min_sensor_value = 2048;
   static bool show_decimal = true;
-  int photo_sensor = 0;
+  unsigned long int now = millis();
+  unsigned int photo_sensor = 0;
   if(start) {
-    next_update_time = millis() + update_millis;
+    next_update_time = now + update_millis;
     return;
   }
-  if(next_update_time > millis()) {
+  if(next_update_time > now) {
     return;
   }
-  next_update_time = millis() + update_millis;
+  next_update_time = now + update_millis;
 
   photo_sensor = analogRead(ANALOG_INPUT_PIN);
   if(photo_sensor > max_sensor_value) {
@@ -181,19 +180,22 @@ void sensor_animation(bool start) {
     min_sensor_value = photo_sensor;
   }
   photo_sensor = photo_sensor / 100;
-  if(photo_sensor > 9)
+  if(photo_sensor > 9) {
     photo_sensor = 9;
-
-  /*
-   * Add a minute to the cycle if it's dark and not beyond the max time
-   */
-  if(photo_sensor && (next_cycle_time < max_cycle_time)) {
-    next_cycle_time += (photo_sensor * 60UL * 1000UL);
   }
 
-  write_char(photo_sensor + 0x30,show_decimal);
+  write_char((char)(photo_sensor + 0x30),show_decimal);
   show_decimal = !show_decimal;
-
+  /*
+   * Add a minute to the cycle if it's dark and not beyond the max time
+   * photo_sensor is 0 when there's some sunlight, otherwise non-zero
+   */
+  if(photo_sensor && (next_cycle_time < max_cycle_time)) {
+    next_cycle_time += (60UL * 1000UL);
+  } else {
+    /* reset if sunlight detected */
+    next_cycle_time = saved_cycle_start_time;
+  }
 }
 
 /*
@@ -279,7 +281,8 @@ void check_cycle_state(unsigned long int now) {
 #ifdef DEBUG
       Serial.println(" ------- Stopping the Cycle  ");
 #endif
-      next_cycle_time = cycle_start_time + total_cycle_millis;
+      next_cycle_time = cycle_start_time + MIN_CYCLE_TIME;
+      saved_cycle_start_time = next_cycle_time;
       max_cycle_time = cycle_start_time + MAX_CYCLE_TIME;
       cycle_start_time = 0;
       current_pump_pwm_value = 0;
@@ -301,7 +304,6 @@ void check_cycle_state(unsigned long int now) {
       analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
     }
   }
-
 }
 
 /*
@@ -311,7 +313,7 @@ void check_cycle_state(unsigned long int now) {
 void check_aeration_state(unsigned long now) {
   static unsigned long int next_update_time = 0;
   static unsigned long int update_millis = 30000;   /* 30 seconds on */
-  static unsigned long int additional_off_time = 9.5 * 60UL * 1000UL; /*  9.5 minutes  */
+  static unsigned long int additional_off_time = 4.5 * 60UL * 1000UL; /*  4.5 minutes  */
   if(current_pump_pwm_value > 0) {
     if(current_aeration_pwm_value > 0) {
       current_aeration_pwm_value = 0;
