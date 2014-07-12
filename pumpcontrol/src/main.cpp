@@ -14,10 +14,17 @@ extern "C" void __cxa_pure_virtual(void) {
 #define AERATION_PWM_PIN 46
 #define PUMP_ENABLE_PIN 53
 
-/* #define DEBUG */
+// #define DEBUG
 
 #define MAX_CYCLE_TIME 3UL /* hours */ * 60UL /*minutes*/ * 60UL /* seconds */ * 1000UL /* milliseconds */
+
+#ifdef DEBUG
+#define MIN_CYCLE_TIME 0.01 /* hours */ * 60UL /*minutes*/ * 60UL /* seconds */ * 1000UL /* milliseconds */
+#define COUNTDOWN_SECONDS 10
+#else
 #define MIN_CYCLE_TIME 1UL /* hours */ * 60UL /*minutes*/ * 60UL /* seconds */ * 1000UL /* milliseconds */
+#define COUNTDOWN_SECONDS 60
+#endif
 /*
  * Pins used for the 7-segment LED - DP,A,B,C,D,E,F,G
  * pattern for segment_patterns also
@@ -47,10 +54,12 @@ int aeration_pwm_value = 190;  /* The pump splashes like crazy if set to 254 */
  * How long to keep the pump on in milliseconds
  * This value is contained within the cycle time, not in addition to
  */
-unsigned long int pump_on_millis = 2.1 /*minutes*/ * 60UL/* seconds */ * 1000UL /* milliseconds */;
+#ifdef DEBUG
 /* testing value */
-/* unsigned long int pump_on_millis = 15UL * 1000UL; */
-
+unsigned long int pump_on_millis = 15UL * 1000UL;
+#else
+unsigned long int pump_on_millis = 1.9 /*minutes*/ * 60UL/* seconds */ * 1000UL /* milliseconds */;
+#endif
 
 unsigned long int saved_cycle_start_time = 0;
 unsigned long int next_cycle_time = 0;
@@ -60,6 +69,9 @@ unsigned long int cycle_start_time = 0;
 int current_pump_pwm_value = 0;
 int current_aeration_pwm_value = 0;
 
+void pumping_animation(bool start);
+void sensor_animation(bool start);
+void countdown_animation(bool start);
 void (*animation)(bool start) = NULL;
 
 void setup() {
@@ -81,9 +93,13 @@ void setup() {
   pinMode(PUMP_ENABLE_PIN,OUTPUT);
   analogWrite(PUMP_PWM_PIN,0);
   digitalWrite(PUMP_ENABLE_PIN,HIGH);
-
+#ifdef DEBUG
+  next_cycle_time = 1500;
+#else
   next_cycle_time = 15000;
+#endif
   saved_cycle_start_time = next_cycle_time;
+  animation = &sensor_animation;
 }
 
 /*
@@ -258,12 +274,13 @@ void check_cycle_state(unsigned long int now) {
   }
   next_update_time = now + update_millis;
 #ifdef DEBUG
-  Serial.println("check_cycle_state");
-  Serial.print("current_pump_pwm_value = ");
+  Serial.print("check_cycle_state: next cycle in ");
+  Serial.print(seconds_till_cycle);
+  Serial.print(" - current_pump_pwm_value = ");
   Serial.println(current_pump_pwm_value);
 #endif
   if(seconds_till_cycle > 0 && current_pump_pwm_value == 0) {
-    if((seconds_till_cycle < 60) && animation == &sensor_animation) {
+    if((seconds_till_cycle < COUNTDOWN_SECONDS) && animation == &sensor_animation) {
       countdown_animation(true);
       animation = &countdown_animation;
     }
@@ -274,8 +291,13 @@ void check_cycle_state(unsigned long int now) {
     Serial.print(now);
     Serial.print(" -- cycle_start_time = ");
     Serial.print(cycle_start_time);
-    Serial.print("  --  Next pump change = ");
-    Serial.println(pump_state_change + pump_on_millis);
+    Serial.print("  --  Next pump change in ");
+    if(now > (pump_state_change + pump_on_millis)) {
+    Serial.print((now - (pump_state_change + pump_on_millis)) / 1000);
+    } else {
+      Serial.print(((pump_state_change + pump_on_millis) - now) / 1000);
+    }
+    Serial.println(" seconds");
 #endif
     if(cycle_start_time && (pump_state_change + pump_on_millis) <= now) {
 #ifdef DEBUG
@@ -286,11 +308,10 @@ void check_cycle_state(unsigned long int now) {
       max_cycle_time = cycle_start_time + MAX_CYCLE_TIME;
       cycle_start_time = 0;
       current_pump_pwm_value = 0;
+      analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
       animation = &sensor_animation;
       sensor_animation(true);
       pump_state_change = now;
-      analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
-      delay(1);
     } else if (current_pump_pwm_value == 0) {
 #ifdef DEBUG
       Serial.println(" ------- Starting the Cycle  ");
@@ -299,9 +320,8 @@ void check_cycle_state(unsigned long int now) {
       animation = &pumping_animation;
       pumping_animation(true);
       current_pump_pwm_value = pump_pwm_value;
-      pump_state_change = now;
-      delay(1);
       analogWrite(PUMP_PWM_PIN,current_pump_pwm_value);
+      pump_state_change = now;
     }
   }
 }
@@ -313,7 +333,7 @@ void check_cycle_state(unsigned long int now) {
 void check_aeration_state(unsigned long now) {
   static unsigned long int next_update_time = 0;
   static unsigned long int update_millis = 30000;   /* 30 seconds on */
-  static unsigned long int additional_off_time = 4.5 * 60UL * 1000UL; /*  4.5 minutes  */
+  static unsigned long int additional_off_time = 9.5 * 60UL * 1000UL; /*  9.5 minutes  */
   if(current_pump_pwm_value > 0) {
     if(current_aeration_pwm_value > 0) {
       current_aeration_pwm_value = 0;
